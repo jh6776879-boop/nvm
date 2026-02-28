@@ -24,3 +24,5 @@ package-lock.json
 yarn.lock
 
 target/
+test/xz-test/
+test/fast/Unit tests/; die*
