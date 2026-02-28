@@ -61,19 +61,21 @@ nvm_is_alias() {
 nvm_command_info() {
   local COMMAND
   local INFO
+  local TYPE_OUTPUT
   COMMAND="${1}"
-  if type "${COMMAND}" | nvm_grep -q hashed; then
-    INFO="$(type "${COMMAND}" | command sed -E 's/\(|\)//g' | command awk '{print $4}')"
-  elif type "${COMMAND}" | nvm_grep -q aliased; then
+  TYPE_OUTPUT="$(type "${COMMAND}")"
+  if nvm_echo "${TYPE_OUTPUT}" | nvm_grep -q hashed; then
+    INFO="$(nvm_echo "${TYPE_OUTPUT}" | command sed -E 's/\(|\)//g' | command awk '{print $4}')"
+  elif nvm_echo "${TYPE_OUTPUT}" | nvm_grep -q aliased; then
     # shellcheck disable=SC2230
-    INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4="" ;print }' | command sed -e 's/^\ *//g' -Ee "s/\`|'//g"))"
-  elif type "${COMMAND}" | nvm_grep -q "^${COMMAND} is an alias for"; then
+    INFO="$(which "${COMMAND}") ($(nvm_echo "${TYPE_OUTPUT}" | command awk '{ $1=$2=$3=$4="" ;print }' | command sed -e 's/^\ *//g' -Ee "s/\`|'//g"))"
+  elif nvm_echo "${TYPE_OUTPUT}" | nvm_grep -q "^${COMMAND} is an alias for"; then
     # shellcheck disable=SC2230
-    INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4=$5="" ;print }' | command sed 's/^\ *//g'))"
-  elif type "${COMMAND}" | nvm_grep -q "^${COMMAND} is /"; then
-    INFO="$(type "${COMMAND}" | command awk '{print $3}')"
+    INFO="$(which "${COMMAND}") ($(nvm_echo "${TYPE_OUTPUT}" | command awk '{ $1=$2=$3=$4=$5="" ;print }' | command sed 's/^\ *//g'))"
+  elif nvm_echo "${TYPE_OUTPUT}" | nvm_grep -q "^${COMMAND} is /"; then
+    INFO="$(nvm_echo "${TYPE_OUTPUT}" | command awk '{print $3}')"
   else
-    INFO="$(type "${COMMAND}")"
+    INFO="${TYPE_OUTPUT}"
   fi
   nvm_echo "${INFO}"
 }
@@ -1036,11 +1038,11 @@ nvm_set_colors() {
     local NOT_INSTALLED_COLOR
     local DEFAULT_COLOR
 
-    INSTALLED_COLOR="$(echo "$1" | awk '{ print substr($0, 1, 1); }')"
-    LTS_AND_SYSTEM_COLOR="$(echo "$1" | awk '{ print substr($0, 2, 1); }')"
-    CURRENT_COLOR="$(echo "$1" | awk '{ print substr($0, 3, 1); }')"
-    NOT_INSTALLED_COLOR="$(echo "$1" | awk '{ print substr($0, 4, 1); }')"
-    DEFAULT_COLOR="$(echo "$1" | awk '{ print substr($0, 5, 1); }')"
+    INSTALLED_COLOR="${1%????}"
+    LTS_AND_SYSTEM_COLOR="${1#?}"; LTS_AND_SYSTEM_COLOR="${LTS_AND_SYSTEM_COLOR%???}"
+    CURRENT_COLOR="${1#??}"; CURRENT_COLOR="${CURRENT_COLOR%??}"
+    NOT_INSTALLED_COLOR="${1#???}"; NOT_INSTALLED_COLOR="${NOT_INSTALLED_COLOR%?}"
+    DEFAULT_COLOR="${1#????}"
     if ! nvm_has_colors; then
       nvm_echo "Setting colors to: ${INSTALLED_COLOR} ${LTS_AND_SYSTEM_COLOR} ${CURRENT_COLOR} ${NOT_INSTALLED_COLOR} ${DEFAULT_COLOR}"
       nvm_echo "WARNING: Colors may not display because they are not supported in this shell."
@@ -1057,15 +1059,17 @@ nvm_get_colors() {
   local COLOR
   local SYS_COLOR
   local COLORS
+  local NVM_SUBCOLOR
   COLORS="${NVM_COLORS:-bygre}"
   case $1 in
-    1) COLOR=$(nvm_print_color_code "$(echo "$COLORS" | awk '{ print substr($0, 1, 1); }')");;
-    2) COLOR=$(nvm_print_color_code "$(echo "$COLORS" | awk '{ print substr($0, 2, 1); }')");;
-    3) COLOR=$(nvm_print_color_code "$(echo "$COLORS" | awk '{ print substr($0, 3, 1); }')");;
-    4) COLOR=$(nvm_print_color_code "$(echo "$COLORS" | awk '{ print substr($0, 4, 1); }')");;
-    5) COLOR=$(nvm_print_color_code "$(echo "$COLORS" | awk '{ print substr($0, 5, 1); }')");;
+    1) COLOR=$(nvm_print_color_code "${COLORS%????}");;
+    2) NVM_SUBCOLOR="${COLORS#?}"; COLOR=$(nvm_print_color_code "${NVM_SUBCOLOR%???}");;
+    3) NVM_SUBCOLOR="${COLORS#??}"; COLOR=$(nvm_print_color_code "${NVM_SUBCOLOR%??}");;
+    4) NVM_SUBCOLOR="${COLORS#???}"; COLOR=$(nvm_print_color_code "${NVM_SUBCOLOR%?}");;
+    5) COLOR=$(nvm_print_color_code "${COLORS#????}");;
     6)
-      SYS_COLOR=$(nvm_print_color_code "$(echo "$COLORS" | awk '{ print substr($0, 2, 1); }')")
+      NVM_SUBCOLOR="${COLORS#?}"; NVM_SUBCOLOR="${NVM_SUBCOLOR%???}"
+      SYS_COLOR=$(nvm_print_color_code "${NVM_SUBCOLOR}")
       COLOR=$(nvm_echo "$SYS_COLOR" | command tr '0;' '1;')
       ;;
     *)
@@ -3243,6 +3247,8 @@ nvm() {
 
     "debug")
       local OS_VERSION
+      local NVM_OS
+      NVM_OS="$(nvm_get_os)"
       nvm_is_zsh && setopt local_options shwordsplit
       nvm_err "nvm --version: v$(nvm --version)"
       if [ -n "${TERM_PROGRAM-}" ]; then
@@ -3262,7 +3268,7 @@ nvm() {
       nvm_err "shell version: '$(${SHELL} --version | command head -n 1)'"
       nvm_err "uname -a: '$(command uname -a | command awk '{$2=""; print}' | command xargs)'"
       nvm_err "checksum binary: '$(nvm_get_checksum_binary 2>/dev/null)'"
-      if [ "$(nvm_get_os)" = "darwin" ] && nvm_has sw_vers; then
+      if [ "${NVM_OS}" = "darwin" ] && nvm_has sw_vers; then
         OS_VERSION="$(sw_vers | command awk '{print $2}' | command xargs)"
       elif [ -r "/etc/issue" ]; then
         OS_VERSION="$(command head -n 1 /etc/issue | command sed 's/\\.//g')"
@@ -3294,7 +3300,7 @@ nvm() {
       local TEST_TOOLS ADD_TEST_TOOLS
       TEST_TOOLS="git grep"
       ADD_TEST_TOOLS="sed cut basename rm mkdir xargs"
-      if [ "darwin" != "$(nvm_get_os)" ] && [ "freebsd" != "$(nvm_get_os)" ]; then
+      if [ "darwin" != "${NVM_OS}" ] && [ "freebsd" != "${NVM_OS}" ]; then
         TEST_TOOLS="${TEST_TOOLS} ${ADD_TEST_TOOLS}"
       else
         for tool in ${ADD_TEST_TOOLS} ; do
