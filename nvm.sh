@@ -60,22 +60,22 @@ nvm_is_alias() {
 
 nvm_command_info() {
   local COMMAND
-  local INFO
+  local COMMAND_INFO
   COMMAND="${1}"
   if type "${COMMAND}" | nvm_grep -q hashed; then
-    INFO="$(type "${COMMAND}" | command sed -E 's/\(|\)//g' | command awk '{print $4}')"
+    COMMAND_INFO="$(type "${COMMAND}" | command sed -E 's/\(|\)//g' | command awk '{print $4}')"
   elif type "${COMMAND}" | nvm_grep -q aliased; then
     # shellcheck disable=SC2230
-    INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4="" ;print }' | command sed -e 's/^\ *//g' -Ee "s/\`|'//g"))"
+    COMMAND_INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4="" ;print }' | command sed -e 's/^\ *//g' -Ee "s/\`|'//g"))"
   elif type "${COMMAND}" | nvm_grep -q "^${COMMAND} is an alias for"; then
     # shellcheck disable=SC2230
-    INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4=$5="" ;print }' | command sed 's/^\ *//g'))"
+    COMMAND_INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4=$5="" ;print }' | command sed 's/^\ *//g'))"
   elif type "${COMMAND}" | nvm_grep -q "^${COMMAND} is /"; then
-    INFO="$(type "${COMMAND}" | command awk '{print $3}')"
+    COMMAND_INFO="$(type "${COMMAND}" | command awk '{print $3}')"
   else
-    INFO="$(type "${COMMAND}")"
+    COMMAND_INFO="$(type "${COMMAND}")"
   fi
-  nvm_echo "${INFO}"
+  nvm_echo "${COMMAND_INFO}"
 }
 
 nvm_has_colors() {
@@ -507,10 +507,10 @@ nvm_find_up() {
 }
 
 nvm_find_nvmrc() {
-  local dir
-  dir="$(nvm_find_up '.nvmrc')"
-  if [ -e "${dir}/.nvmrc" ]; then
-    nvm_echo "${dir}/.nvmrc"
+  local NVMRC_DIR
+  NVMRC_DIR="$(nvm_find_up '.nvmrc')"
+  if [ -e "${NVMRC_DIR}/.nvmrc" ]; then
+    nvm_echo "${NVMRC_DIR}/.nvmrc"
   fi
 }
 
@@ -912,9 +912,9 @@ nvm_normalize_lts() {
 
   case "${LTS}" in
     lts/-[123456789] | lts/-[123456789][0123456789]*)
-      local N
-      N="$(echo "${LTS}" | cut -d '-' -f 2)"
-      N=$((N+1))
+      local LTS_OFFSET
+      LTS_OFFSET="$(echo "${LTS}" | cut -d '-' -f 2)"
+      LTS_OFFSET=$((LTS_OFFSET+1))
       # shellcheck disable=SC2181
       if [ $? -ne 0 ]; then
         nvm_echo "${LTS}"
@@ -922,10 +922,10 @@ nvm_normalize_lts() {
       fi
       local NVM_ALIAS_DIR
       NVM_ALIAS_DIR="$(nvm_alias_path)"
-      local RESULT
-      RESULT="$(command ls "${NVM_ALIAS_DIR}/lts" | command tail -n "${N}" | command head -n 1)"
-      if [ "${RESULT}" != '*' ]; then
-        nvm_echo "lts/${RESULT}"
+      local LTS_ALIAS_NAME
+      LTS_ALIAS_NAME="$(command ls "${NVM_ALIAS_DIR}/lts" | command tail -n "${LTS_OFFSET}" | command head -n 1)"
+      if [ "${LTS_ALIAS_NAME}" != '*' ]; then
+        nvm_echo "lts/${LTS_ALIAS_NAME}"
       else
         nvm_err 'That many LTS releases do not exist yet.'
         return 2
@@ -984,8 +984,8 @@ nvm_strip_path() {
     nvm_err '${NVM_DIR} not set!'
     return 1
   fi
-  local RESULT
-  RESULT="$(command printf %s "${1-}" | command awk -v NVM_DIR="${NVM_DIR}" -v RS=: '
+  local STRIPPED_PATH
+  STRIPPED_PATH="$(command printf %s "${1-}" | command awk -v NVM_DIR="${NVM_DIR}" -v RS=: '
   index($0, NVM_DIR) == 1 {
     path = substr($0, length(NVM_DIR) + 1)
     if (path ~ "^(/versions/[^/]*)?/[^/]*'"${2-}"'.*$") { next }
@@ -993,8 +993,8 @@ nvm_strip_path() {
   { printf "%s%s", sep, $0; sep=RS }')"
   # mawk does not support RT, so preserve trailing colon manually
   case "${1-}" in
-    *:) command printf '%s:' "${RESULT}" ;;
-    *) command printf '%s' "${RESULT}" ;;
+    *:) command printf '%s:' "${STRIPPED_PATH}" ;;
+    *) command printf '%s' "${STRIPPED_PATH}" ;;
   esac
 }
 
@@ -1078,14 +1078,14 @@ nvm_get_colors() {
 }
 
 nvm_wrap_with_color_code() {
-  local CODE
-  CODE="$(nvm_print_color_code "${1}" 2>/dev/null ||:)"
-  local TEXT
-  TEXT="${2-}"
-  if nvm_has_colors && [ -n "${CODE}" ]; then
-    nvm_echo_with_colors "\033[${CODE}${TEXT}\033[0m"
+  local COLOR_CODE
+  COLOR_CODE="$(nvm_print_color_code "${1}" 2>/dev/null ||:)"
+  local DISPLAY_TEXT
+  DISPLAY_TEXT="${2-}"
+  if nvm_has_colors && [ -n "${COLOR_CODE}" ]; then
+    nvm_echo_with_colors "\033[${COLOR_CODE}${DISPLAY_TEXT}\033[0m"
   else
-    nvm_echo "${TEXT}"
+    nvm_echo "${DISPLAY_TEXT}"
   fi
 }
 
@@ -2072,7 +2072,7 @@ nvm_print_implicit_alias() {
   local MINOR
   local STABLE
   local UNSTABLE
-  local MOD
+  local VERSION_PARITY
   local NORMALIZED_VERSION
 
   nvm_is_zsh && setopt local_options shwordsplit
@@ -2081,10 +2081,10 @@ nvm_print_implicit_alias() {
     if [ "_0${NORMALIZED_VERSION#?}" != "_$NORMALIZED_VERSION" ]; then
       STABLE="$MINOR"
     else
-      MOD="$(awk 'BEGIN { print int(ARGV[1] / 1000000) % 2 ; exit(0) }' "${NORMALIZED_VERSION}")"
-      if [ "${MOD}" -eq 0 ]; then
+      VERSION_PARITY="$(awk 'BEGIN { print int(ARGV[1] / 1000000) % 2 ; exit(0) }' "${NORMALIZED_VERSION}")"
+      if [ "${VERSION_PARITY}" -eq 0 ]; then
         STABLE="${MINOR}"
-      elif [ "${MOD}" -eq 1 ]; then
+      elif [ "${VERSION_PARITY}" -eq 1 ]; then
         UNSTABLE="${MINOR}"
       fi
     fi
