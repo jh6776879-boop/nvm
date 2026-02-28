@@ -1815,31 +1815,42 @@ nvm_compute_checksum() {
     return 1
   fi
 
-  if nvm_has_non_aliased "sha256sum"; then
-    nvm_err 'Computing checksum with sha256sum'
-    command sha256sum "${FILE}" | command awk '{print $1}'
-  elif nvm_has_non_aliased "shasum"; then
-    nvm_err 'Computing checksum with shasum -a 256'
-    command shasum -a 256 "${FILE}" | command awk '{print $1}'
-  elif nvm_has_non_aliased "sha256"; then
-    nvm_err 'Computing checksum with sha256 -q'
-    command sha256 -q "${FILE}" | command awk '{print $1}'
-  elif nvm_has_non_aliased "gsha256sum"; then
-    nvm_err 'Computing checksum with gsha256sum'
-    command gsha256sum "${FILE}" | command awk '{print $1}'
-  elif nvm_has_non_aliased "openssl"; then
-    nvm_err 'Computing checksum with openssl dgst -sha256'
-    command openssl dgst -sha256 "${FILE}" | command awk '{print $NF}'
-  elif nvm_has_non_aliased "bssl"; then
-    nvm_err 'Computing checksum with bssl sha256sum'
-    command bssl sha256sum "${FILE}" | command awk '{print $1}'
-  elif nvm_has_non_aliased "sha1sum"; then
-    nvm_err 'Computing checksum with sha1sum'
-    command sha1sum "${FILE}" | command awk '{print $1}'
-  elif nvm_has_non_aliased "sha1"; then
-    nvm_err 'Computing checksum with sha1 -q'
-    command sha1 -q "${FILE}"
-  fi
+  local NVM_CHECKSUM_BIN
+  NVM_CHECKSUM_BIN="$(nvm_get_checksum_binary)"
+  case "${NVM_CHECKSUM_BIN-}" in
+    sha256sum)
+      nvm_err 'Computing checksum with sha256sum'
+      command sha256sum "${FILE}" | command awk '{print $1}'
+    ;;
+    shasum)
+      nvm_err 'Computing checksum with shasum -a 256'
+      command shasum -a 256 "${FILE}" | command awk '{print $1}'
+    ;;
+    sha256)
+      nvm_err 'Computing checksum with sha256 -q'
+      command sha256 -q "${FILE}" | command awk '{print $1}'
+    ;;
+    gsha256sum)
+      nvm_err 'Computing checksum with gsha256sum'
+      command gsha256sum "${FILE}" | command awk '{print $1}'
+    ;;
+    openssl)
+      nvm_err 'Computing checksum with openssl dgst -sha256'
+      command openssl dgst -sha256 "${FILE}" | command awk '{print $NF}'
+    ;;
+    bssl)
+      nvm_err 'Computing checksum with bssl sha256sum'
+      command bssl sha256sum "${FILE}" | command awk '{print $1}'
+    ;;
+    sha1sum)
+      nvm_err 'Computing checksum with sha1sum'
+      command sha1sum "${FILE}" | command awk '{print $1}'
+    ;;
+    sha1)
+      nvm_err 'Computing checksum with sha1 -q'
+      command sha1 -q "${FILE}"
+    ;;
+  esac
 }
 
 nvm_compare_checksum() {
@@ -3050,6 +3061,35 @@ nvm_cache_dir() {
   nvm_echo "${NVM_DIR}/.cache"
 }
 
+nvm_parse_reinstall_packages_from() {
+  case "$1" in
+    --reinstall-packages-from=*)
+      if [ -n "${PROVIDED_REINSTALL_PACKAGES_FROM-}" ]; then
+        nvm_err '--reinstall-packages-from may not be provided more than once'
+        return 6
+      fi
+      PROVIDED_REINSTALL_PACKAGES_FROM="$(nvm_echo "$1" | command cut -c 27-)"
+      if [ -z "${PROVIDED_REINSTALL_PACKAGES_FROM}" ]; then
+        nvm_err 'If --reinstall-packages-from is provided, it must point to an installed version of node.'
+        return 6
+      fi
+      REINSTALL_PACKAGES_FROM="$(nvm_version "${PROVIDED_REINSTALL_PACKAGES_FROM}")" ||:
+    ;;
+    --copy-packages-from=*)
+      if [ -n "${PROVIDED_REINSTALL_PACKAGES_FROM-}" ]; then
+        nvm_err '--reinstall-packages-from may not be provided more than once, or combined with `--copy-packages-from`'
+        return 6
+      fi
+      PROVIDED_REINSTALL_PACKAGES_FROM="$(nvm_echo "$1" | command cut -c 22-)"
+      if [ -z "${PROVIDED_REINSTALL_PACKAGES_FROM}" ]; then
+        nvm_err 'If --copy-packages-from is provided, it must point to an installed version of node.'
+        return 6
+      fi
+      REINSTALL_PACKAGES_FROM="$(nvm_version "${PROVIDED_REINSTALL_PACKAGES_FROM}")" ||:
+    ;;
+  esac
+}
+
 nvm() {
   if [ "$#" -lt 1 ]; then
     nvm --help
@@ -3420,30 +3460,8 @@ nvm() {
             ALIAS="${1##--alias=}"
             shift
           ;;
-          --reinstall-packages-from=*)
-            if [ -n "${PROVIDED_REINSTALL_PACKAGES_FROM-}" ]; then
-              nvm_err '--reinstall-packages-from may not be provided more than once'
-              return 6
-            fi
-            PROVIDED_REINSTALL_PACKAGES_FROM="$(nvm_echo "$1" | command cut -c 27-)"
-            if [ -z "${PROVIDED_REINSTALL_PACKAGES_FROM}" ]; then
-              nvm_err 'If --reinstall-packages-from is provided, it must point to an installed version of node.'
-              return 6
-            fi
-            REINSTALL_PACKAGES_FROM="$(nvm_version "${PROVIDED_REINSTALL_PACKAGES_FROM}")" ||:
-            shift
-          ;;
-          --copy-packages-from=*)
-            if [ -n "${PROVIDED_REINSTALL_PACKAGES_FROM-}" ]; then
-              nvm_err '--reinstall-packages-from may not be provided more than once, or combined with `--copy-packages-from`'
-              return 6
-            fi
-            PROVIDED_REINSTALL_PACKAGES_FROM="$(nvm_echo "$1" | command cut -c 22-)"
-            if [ -z "${PROVIDED_REINSTALL_PACKAGES_FROM}" ]; then
-              nvm_err 'If --copy-packages-from is provided, it must point to an installed version of node.'
-              return 6
-            fi
-            REINSTALL_PACKAGES_FROM="$(nvm_version "${PROVIDED_REINSTALL_PACKAGES_FROM}")" ||:
+          --reinstall-packages-from=* | --copy-packages-from=*)
+            nvm_parse_reinstall_packages_from "$1" || return $?
             shift
           ;;
           --reinstall-packages-from | --copy-packages-from)
@@ -3535,29 +3553,8 @@ nvm() {
 
       while [ $# -ne 0 ]; do
         case "$1" in
-          --reinstall-packages-from=*)
-            if [ -n "${PROVIDED_REINSTALL_PACKAGES_FROM-}" ]; then
-              nvm_err '--reinstall-packages-from may not be provided more than once'
-              return 6
-            fi
-            PROVIDED_REINSTALL_PACKAGES_FROM="$(nvm_echo "$1" | command cut -c 27-)"
-            if [ -z "${PROVIDED_REINSTALL_PACKAGES_FROM}" ]; then
-              nvm_err 'If --reinstall-packages-from is provided, it must point to an installed version of node.'
-              return 6
-            fi
-            REINSTALL_PACKAGES_FROM="$(nvm_version "${PROVIDED_REINSTALL_PACKAGES_FROM}")" ||:
-          ;;
-          --copy-packages-from=*)
-            if [ -n "${PROVIDED_REINSTALL_PACKAGES_FROM-}" ]; then
-              nvm_err '--reinstall-packages-from may not be provided more than once, or combined with `--copy-packages-from`'
-              return 6
-            fi
-            PROVIDED_REINSTALL_PACKAGES_FROM="$(nvm_echo "$1" | command cut -c 22-)"
-            if [ -z "${PROVIDED_REINSTALL_PACKAGES_FROM}" ]; then
-              nvm_err 'If --copy-packages-from is provided, it must point to an installed version of node.'
-              return 6
-            fi
-            REINSTALL_PACKAGES_FROM="$(nvm_version "${PROVIDED_REINSTALL_PACKAGES_FROM}")" ||:
+          --reinstall-packages-from=* | --copy-packages-from=*)
+            nvm_parse_reinstall_packages_from "$1" || return $?
           ;;
           --reinstall-packages-from | --copy-packages-from)
             nvm_err "If ${1} is provided, it must point to an installed version of node using \`=\`."
